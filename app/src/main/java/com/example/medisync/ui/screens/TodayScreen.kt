@@ -11,11 +11,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,13 +29,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -42,8 +49,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.medisync.data.model.Medication
 import com.example.medisync.viewmodel.MedicationViewModel
+import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -240,8 +250,9 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
         if (showAddDrawer) {
             AddMedicationDrawer(
                 onDismiss = { showAddDrawer = false },
-                onSave = { name, dosage, times ->
-                    viewModel.addMedication(name, dosage, times)
+                onSave = { name, dosage, time ->
+                    // Correcting the ViewModel call to handle a single time string
+                    viewModel.addMedication(name, dosage, listOf(time))
                     showAddDrawer = false
                 }
             )
@@ -518,39 +529,16 @@ fun DeleteMedicationDrawer(count: Int, onDismiss: () -> Unit, onConfirm: () -> U
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, List<String>) -> Unit) {
-    val context = LocalContext.current
+fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var dosage by remember { mutableStateOf("") }
-    val selectedTimes = remember { mutableStateListOf<String>() }
-    var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
-    val photoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri -> 
-            if (uri != null) {
-                // Take persistent permission for the URI if possible, or just use it
-                try {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                } catch (e: Exception) {
-                    // Ignore if not possible
-                }
-                selectedImageUri = uri 
-            }
-        }
-    )
-
-    val timePills = listOf(
-        "morning" to "AM",
-        "midday" to "PM",
-        "evening" to "PM",
-        "night" to "PM"
-    )
+    // Time State
+    var selectedHour by remember { mutableIntStateOf(9) }
+    var selectedMinute by remember { mutableIntStateOf(0) }
+    var selectedAmPm by remember { mutableStateOf("AM") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -571,25 +559,12 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, List<Str
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(
-                        text = "Add medication",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
-                    )
-                    Text(
-                        text = "We'll add it to today's schedule.",
-                        fontSize = 14.sp,
-                        color = Color(0xFF64748B),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                    Text(text = "Add medication", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+                    Text(text = "We'll add it to today's schedule.", fontSize = 14.sp, color = Color(0xFF64748B), modifier = Modifier.padding(top = 4.dp))
                 }
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFF1F5F9))
+                    modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFFF1F5F9))
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
                 }
@@ -605,10 +580,7 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, List<Str
                 placeholder = { Text("e.g. Lisinopril") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedBorderColor = Color(0xFF5C6BC0)
-                )
+                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color(0xFFE2E8F0), focusedBorderColor = Color(0xFF5C6BC0))
             )
             
             Spacer(modifier = Modifier.height(20.dp))
@@ -621,110 +593,44 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, List<Str
                 placeholder = { Text("e.g. 10 mg") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedBorderColor = Color(0xFF5C6BC0)
-                )
+                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color(0xFFE2E8F0), focusedBorderColor = Color(0xFF5C6BC0))
             )
             
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Text("PHOTO (OPTIONAL)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
-            Spacer(modifier = Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White)
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
-                    .clickable { 
-                        photoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                if (selectedImageUri != null) {
-                    AsyncImage(
-                        model = selectedImageUri,
-                        contentDescription = "Selected pill photo",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                    // Close button to remove photo
-                    IconButton(
-                        onClick = { selectedImageUri = null },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                            .size(24.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Remove photo", tint = Color.White, modifier = Modifier.size(14.dp))
-                    }
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AddAPhoto, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Tap to upload pill photo", color = Color(0xFF64748B), fontSize = 14.sp)
-                    }
+            Text("Timing", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            WheelTimePickerView(
+                onTimeChanged = { h, m, ap -> 
+                    selectedHour = h
+                    selectedMinute = m
+                    selectedAmPm = ap
                 }
-            }
+            )
 
-            Spacer(modifier = Modifier.height(20.dp))
-            
-            Text("WHEN", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
-            Spacer(modifier = Modifier.height(6.dp))
-            
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                timePills.chunked(2).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        row.forEach { (time, label) ->
-                            val isSelected = selectedTimes.contains(time)
-                            Surface(
-                                onClick = { 
-                                    if (isSelected) selectedTimes.remove(time) else selectedTimes.add(time)
-                                },
-                                modifier = Modifier.weight(1f).height(56.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (isSelected) Color(0xFF5C6BC0).copy(alpha = 0.1f) else Color.White,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp, 
-                                    if (isSelected) Color(0xFF5C6BC0) else Color(0xFFE2E8F0)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = time.replaceFirstChar { it.uppercase() },
-                                        color = if (isSelected) Color(0xFF5C6BC0) else Color(0xFF1E293B),
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = label,
-                                        color = if (isSelected) Color(0xFF5C6BC0) else Color(0xFF64748B),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
             Spacer(modifier = Modifier.height(32.dp))
             
-            val canSubmit = name.isNotBlank() && dosage.isNotBlank() && selectedTimes.isNotEmpty()
+            val interactionSource = remember { MutableInteractionSource() }
+            val isPressed by interactionSource.collectIsPressedAsState()
+            val scale by animateFloatAsState(
+                targetValue = if (isPressed) 0.96f else 1f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                label = "btnScale"
+            )
+
+            val canSubmit = name.isNotBlank() && dosage.isNotBlank()
             Button(
-                onClick = { onSave(name, dosage, selectedTimes.toList()) },
+                onClick = { 
+                    val formattedTime = String.format(Locale.US, "%d:%02d %s", selectedHour, selectedMinute, selectedAmPm)
+                    onSave(name, dosage, formattedTime) 
+                },
                 enabled = canSubmit,
+                interactionSource = interactionSource,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(56.dp)
+                    .scale(scale),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFFD1C4E9),
@@ -739,3 +645,154 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, List<Str
         }
     }
 }
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun WheelTimePickerView(onTimeChanged: (Int, Int, String) -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    
+    val hours = (1..12).toList()
+    val minutes = (0..59).toList()
+    val amPm = listOf("AM", "PM")
+
+    // Use a reasonable multiplier for infinite scroll effect
+    val hourState = rememberLazyListState(initialFirstVisibleItemIndex = 50 * hours.size + 8) // Defaults to 9
+    val minuteState = rememberLazyListState(initialFirstVisibleItemIndex = 50 * minutes.size + 0) // Defaults to 00
+    val amPmState = rememberLazyListState(initialFirstVisibleItemIndex = 5 * amPm.size + 0) // Defaults to AM
+
+    val currentHour by remember { derivedStateOf { hours[hourState.firstVisibleItemIndex % hours.size] } }
+    val currentMinute by remember { derivedStateOf { minutes[minuteState.firstVisibleItemIndex % minutes.size] } }
+    val currentAmPm by remember { derivedStateOf { amPm[amPmState.firstVisibleItemIndex % amPm.size] } }
+
+    LaunchedEffect(currentHour, currentMinute, currentAmPm) {
+        onTimeChanged(currentHour, currentMinute, currentAmPm)
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Presets Row
+        val presets = listOf("9:00 AM", "12:00 PM", "4:00 PM", "8:00 PM")
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = 24.dp)
+        ) {
+            items(presets) { time ->
+                val isSelected = false // Visual only for now
+                Surface(
+                    onClick = {
+                        val parts = time.split(" ", ":")
+                        val h = parts[0].toInt()
+                        val m = parts[1].toInt()
+                        val ap = parts[2]
+                        
+                        scope.launch {
+                            // Find nearest index to target value
+                            val targetHourIdx = hourState.firstVisibleItemIndex + (h - currentHour)
+                            val targetMinIdx = minuteState.firstVisibleItemIndex + (m - currentMinute)
+                            
+                            hourState.animateScrollToItem(targetHourIdx)
+                            minuteState.animateScrollToItem(targetMinIdx)
+                            amPmState.animateScrollToItem(amPm.indexOf(ap))
+                        }
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFFF1F5F9),
+                    border = borderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Text(
+                        text = time,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
+        }
+
+        // The Wheel Picker
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            // Selection overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFF8FAFC))
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                WheelColumn(state = hourState, items = hours, modifier = Modifier.weight(1f))
+                Text(":", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B), modifier = Modifier.padding(horizontal = 8.dp))
+                WheelColumn(state = minuteState, items = minutes, modifier = Modifier.weight(1f), isMinute = true)
+                Spacer(modifier = Modifier.width(16.dp))
+                WheelColumn(state = amPmState, items = amPm, modifier = Modifier.weight(0.8f))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun WheelColumn(
+    state: LazyListState,
+    items: List<Any>,
+    modifier: Modifier = Modifier,
+    isMinute: Boolean = false,
+    isInfinite: Boolean = true
+) {
+    val haptic = LocalHapticFeedback.current
+    // Use smaller multipliers to avoid unnecessary item overhead
+    val multiplier = if (items.size > 2) 100 else 10
+    val totalItems = if (isInfinite) multiplier * items.size else items.size
+    
+    LaunchedEffect(state.firstVisibleItemIndex) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+
+    LazyColumn(
+        state = state,
+        modifier = modifier.height(140.dp),
+        contentPadding = PaddingValues(vertical = 46.dp),
+        flingBehavior = rememberSnapFlingBehavior(lazyListState = state),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        items(totalItems) { index ->
+            val isSelected by remember { derivedStateOf { index == state.firstVisibleItemIndex } }
+            val item = items[index % items.size]
+            
+            val scale by animateFloatAsState(if (isSelected) 1.2f else 0.8f, label = "wheelScale")
+            val alpha by animateFloatAsState(if (isSelected) 1f else 0.3f, label = "wheelAlpha")
+
+            Box(
+                modifier = Modifier
+                    .height(48.dp)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (isMinute) String.format(Locale.US, "%02d", item) else item.toString(),
+                    fontSize = 20.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = Color(0xFF1E293B),
+                    modifier = Modifier
+                        .scale(scale)
+                        .alpha(alpha)
+                )
+            }
+        }
+    }
+}
+
+private fun borderStroke(width: androidx.compose.ui.unit.Dp, color: Color) = androidx.compose.foundation.BorderStroke(width, color)

@@ -23,14 +23,23 @@ class MedicationViewModel : ViewModel() {
             val medication = Medication(
                 name = name,
                 dosage = dosage,
-                time = when(timeStr) {
-                    "morning" -> "8:00 AM"
-                    "afternoon" -> "1:00 PM"
-                    "evening" -> "6:00 PM"
-                    "night" -> "10:00 PM"
-                    else -> "8:00 AM"
-                },
-                timeOfDay = timeStr
+                time = timeStr,
+                timeOfDay = when {
+                    timeStr.contains("AM") -> {
+                        val h = timeStr.split(":")[0].toInt()
+                        if (h in 5..11) "morning" else "night"
+                    }
+                    timeStr.contains("PM") -> {
+                        val h = timeStr.split(":")[0].toInt()
+                        when (h) {
+                            12 -> "afternoon"
+                            in 1..4 -> "afternoon"
+                            in 5..8 -> "evening"
+                            else -> "night"
+                        }
+                    }
+                    else -> "morning"
+                }
             )
             repository.addMedication(medication)
         }
