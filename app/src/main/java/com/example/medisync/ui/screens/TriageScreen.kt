@@ -1,6 +1,7 @@
 package com.example.medisync.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,11 +20,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.medisync.ui.components.BodyMap
+import com.example.medisync.ui.components.TriageMannequinView
+import com.example.medisync.ui.components.BodyZone
 import com.example.medisync.viewmodel.TriageViewModel
 
 data class ChatMessage(
@@ -39,6 +43,25 @@ fun TriageScreen(viewModel: TriageViewModel = viewModel()) {
     val isTyping by viewModel.isTyping.collectAsState()
     val listState = rememberLazyListState()
 
+    // Animation values
+    val mannequinScale by animateFloatAsState(
+        targetValue = if (isChatExpanded) 0.6f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "mannequinScale"
+    )
+    
+    val mannequinOffsetY by animateDpAsState(
+        targetValue = if (isChatExpanded) (-180).dp else 0.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "mannequinOffset"
+    )
+
+    val chatAlpha by animateFloatAsState(
+        targetValue = if (isChatExpanded) 1f else 0.8f,
+        animationSpec = tween(300),
+        label = "chatAlpha"
+    )
+
     LaunchedEffect(messages.size, isTyping) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size)
@@ -47,13 +70,14 @@ fun TriageScreen(viewModel: TriageViewModel = viewModel()) {
 
     fun handleSend() {
         if (input.isBlank()) return
+        isChatExpanded = true
         viewModel.sendMessage(input)
         input = ""
     }
 
-    fun handleZone(zone: String) {
+    fun handleZone(zone: BodyZone) {
         isChatExpanded = true
-        viewModel.selectZone(zone)
+        viewModel.selectZone(zone.label)
     }
 
     Box(
@@ -66,125 +90,141 @@ fun TriageScreen(viewModel: TriageViewModel = viewModel()) {
             )
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Body Map Section
-            AnimatedVisibility(
-                visible = !isChatExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+            // Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(20.dp).padding(top = 20.dp)
             ) {
-                Column(modifier = Modifier.padding(20.dp).padding(top = 20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF5C6BC0).copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF5C6BC0), modifier = Modifier.size(16.dp))
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text("Triage AI", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1E293B))
-                            Text("Tap a zone — guidance, not diagnosis", fontSize = 11.sp, color = Color(0xFF64748B))
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.7f)),
-                        elevation = CardDefaults.cardElevation(0.dp),
-                        modifier = Modifier.fillMaxWidth().height(320.dp)
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            BodyMap(onZoneSelect = { handleZone(it) })
-                        }
+                Box(
+                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF4353FF).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF4353FF), modifier = Modifier.size(16.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Triage AI", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1E293B))
+                    Text("Tap a zone — guidance, not diagnosis", fontSize = 11.sp, color = Color(0xFF64748B))
+                }
+                if (isChatExpanded) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    IconButton(onClick = { isChatExpanded = false }) {
+                        Icon(Icons.Default.Close, contentDescription = "Close Chat", tint = Color(0xFF64748B))
                     }
                 }
             }
 
-            // Chat Section
-            Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                if (isChatExpanded) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Button(
-                            onClick = { isChatExpanded = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                            shape = RoundedCornerShape(20.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp),
-                            modifier = Modifier.height(40.dp)
-                        ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = null, tint = Color(0xFF1E293B), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Back to Body Map", color = Color(0xFF1E293B), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Box(modifier = Modifier.weight(1f)) {
+                // Body Map Section (Mannequin)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .offset(y = mannequinOffsetY)
+                        .graphicsLayer {
+                            scaleX = mannequinScale
+                            scaleY = mannequinScale
                         }
-                        Spacer(modifier = Modifier.weight(1f))
-                        Box(
-                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xFF5C6BC0).copy(alpha = 0.1f)).padding(horizontal = 12.dp, vertical = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF5C6BC0), modifier = Modifier.size(12.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Triage AI", color = Color(0xFF5C6BC0), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(32.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)),
+                        elevation = CardDefaults.cardElevation(0.dp),
+                        modifier = Modifier.fillMaxWidth().height(360.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                TriageMannequinView(
+                                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                                    onZoneSelected = { handleZone(it) }
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                Text("FRONT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+                                Text("BACK", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
                             }
                         }
                     }
                 }
 
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp)
+                // Chat Section (Slides up)
+                Box(
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
-                    items(messages) { msg ->
-                        ChatBubble(msg)
-                    }
-                    if (isTyping) {
-                        item {
-                            TypingIndicator()
-                        }
-                    }
-                }
-
-                // Input Bar
-                Row(
-                    modifier = Modifier.padding(bottom = 20.dp, top = 8.dp).fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { 
-                            input = it
-                            if (!isChatExpanded && it.isNotEmpty()) isChatExpanded = true
-                        },
-                        placeholder = { Text("Describe your symptoms...", fontSize = 14.sp) },
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color.White,
-                            unfocusedContainerColor = Color.White,
-                            focusedBorderColor = Color(0xFF5C6BC0),
-                            unfocusedBorderColor = Color(0xFFE2E8F0)
-                        )
+                    val chatHeight by animateDpAsState(
+                        targetValue = if (isChatExpanded) 500.dp else 160.dp,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+                        label = "chatHeight"
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
+
+                    Column(
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(Color(0xFF5C6BC0), Color(0xFF7E57C2))
+                            .fillMaxWidth()
+                            .height(chatHeight)
+                            .graphicsLayer { alpha = chatAlpha }
+                    ) {
+                        if (isChatExpanded) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(vertical = 12.dp)
+                            ) {
+                                items(messages) { msg ->
+                                    ChatBubble(msg)
+                                }
+                                if (isTyping) {
+                                    item {
+                                        TypingIndicator()
+                                    }
+                                }
+                            }
+                        } else {
+                            // Intro bubble when not expanded
+                            Box(modifier = Modifier.padding(16.dp)) {
+                                ChatBubble(messages.first())
+                            }
+                        }
+
+                        // Input Bar
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp).fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = input,
+                                onValueChange = { 
+                                    input = it
+                                },
+                                placeholder = { Text("Describe your symptoms...", fontSize = 14.sp) },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White,
+                                    focusedBorderColor = Color(0xFF4353FF),
+                                    unfocusedBorderColor = Color(0xFFE2E8F0)
                                 )
                             )
-                            .clickable { handleSend() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(Color(0xFF4353FF), Color(0xFF7E57C2))
+                                        )
+                                    )
+                                    .clickable { handleSend() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                        }
                     }
                 }
             }
