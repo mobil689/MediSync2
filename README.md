@@ -9,16 +9,20 @@ MediSync is a modern, intuitive medication tracking and health management applic
 - **Smart Management:** Add, edit, and delete medication schedules with ease.
 - **Visual Aids:** Support for medication photos and time-of-day icons (Morning, Afternoon, Evening, Night).
 - **Comprehensive Health Tools:**
-  - **Triage System:** Interactive body map for symptom reporting.
-  - **Doctor Directory:** Keep track of your medical professionals.
-  - **Account Management:** Manage profile, medical reports, and notifications.
-- **Modern UI:** Clean, glassmorphic-inspired design with smooth transitions and gradients.
+  - **Triage System:** Interactive body map for symptom reporting with AI-powered analysis (Groq API).
+  - **Doctor Directory (Find Care):** Browse nearby specialists with detailed profiles and ratings.
+    - *Note: Interaction is currently disabled with a "Coming Soon" glass overlay as it requires paid Google API keys.*
+  - **Emergency Medical Info:** Quick access to critical health data like blood type, allergies, and emergency contacts.
+  - **Medical Reports:** Securely upload and manage prescriptions and test results (PDF, JPG, PNG).
+  - **Language & Region Support:** Multi-language support (English, Hindi, etc.) for personalized health tracking.
+- **Modern UI:** Clean, glassmorphic-inspired design with smooth transitions, gradients, and a high-fidelity "Find Care" screen.
 
 ## 🛠 Tech Stack
 
 - **Language:** [Kotlin](https://kotlinlang.org/)
 - **UI Framework:** [Jetpack Compose](https://developer.android.com/jetpack/compose)
 - **Architecture:** MVVM (Model-View-ViewModel)
+- **Networking:** Retrofit & OkHttp (Groq AI Integration)
 - **Image Loading:** [Coil](https://coil-kt.github.io/coil/)
 - **Navigation:** Compose Navigation
 - **Local/Remote Storage:** Firebase (Firestore & Auth)
