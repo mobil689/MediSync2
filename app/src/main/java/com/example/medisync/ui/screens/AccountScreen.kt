@@ -78,7 +78,7 @@ fun AccountScreen(onLogout: () -> Unit, viewModel: MedicationViewModel = viewMod
     var isEditingMedicalId by remember { mutableStateOf(false) }
     var bloodType by remember { mutableStateOf("O+") }
     var allergies by remember { mutableStateOf("Penicillin") }
-    var emergencyContactName by remember { mutableStateOf("John (Son)") }
+    var emergencyContactName by remember { mutableStateOf("Daksh (Son)") }
     var emergencyContactPhone by remember { mutableStateOf("+1 (555) 234-9087") }
 
     // State for Sheets

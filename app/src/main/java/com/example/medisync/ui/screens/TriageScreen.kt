@@ -1,8 +1,16 @@
 package com.example.medisync.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,33 +31,76 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.medisync.ui.components.TriageMannequinView
 import com.example.medisync.ui.components.BodyZone
 import com.example.medisync.viewmodel.TriageViewModel
-
-data class ChatMessage(
-    val id: String,
-    val role: String, // "user" or "ai"
-    val text: String
-)
+import com.example.medisync.viewmodel.ChatMessage
+import com.example.medisync.viewmodel.MedicationViewModel
+import java.io.File
 
 @Composable
-fun TriageScreen(viewModel: TriageViewModel = viewModel()) {
+fun TriageScreen(
+    viewModel: TriageViewModel = viewModel(),
+    medicationViewModel: MedicationViewModel = viewModel()
+) {
     var isChatOpen by remember { mutableStateOf(false) }
+    var selectedZone by remember { mutableStateOf<BodyZone?>(null) }
+    var selectedSide by remember { mutableStateOf(false) }
     var input by remember { mutableStateOf("") }
     val messages = viewModel.messages
     val isTyping by viewModel.isTyping.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val listState = rememberLazyListState()
+    val context = LocalContext.current
 
-    var selectedZone by remember { mutableStateOf<BodyZone?>(null) }
-    var selectedSide by remember { mutableStateOf<Boolean?>(null) }
+    fun createTempPictureUri(): Uri {
+        val tempFile = File.createTempFile("temp_image", ".jpg", context.cacheDir).apply {
+            createNewFile()
+            deleteOnExit()
+        }
+        return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tempFile)
+    }
+
+    var showImageOptions by remember { mutableStateOf(false) }
+    var tempPhotoUri by remember { mutableStateOf<Uri?>(null) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempPhotoUri != null) {
+            viewModel.uploadPrescription(tempPhotoUri!!, context)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val uri = createTempPictureUri()
+            tempPhotoUri = uri
+            cameraLauncher.launch(uri)
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.uploadPrescription(uri, context)
+        }
+    }
 
     LaunchedEffect(messages.size, isTyping) {
         if (messages.isNotEmpty()) {
@@ -280,6 +331,19 @@ fun TriageScreen(viewModel: TriageViewModel = viewModel()) {
                                     .navigationBarsPadding(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                IconButton(
+                                    onClick = { showImageOptions = true },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(Color(0xFFF1F5F9), CircleShape)
+                                ) {
+                                    Icon(
+                                        Icons.Default.AttachFile,
+                                        contentDescription = "Attach",
+                                        tint = Color(0xFF64748B)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
                                 OutlinedTextField(
                                     value = input,
                                     onValueChange = { input = it },
@@ -324,6 +388,36 @@ fun TriageScreen(viewModel: TriageViewModel = viewModel()) {
                     }
                 }
             }
+        }
+
+        if (showImageOptions) {
+            AlertDialog(
+                onDismissRequest = { showImageOptions = false },
+                title = { Text("Upload Prescription") },
+                text = { Text("Choose an option to upload your prescription image.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            val uri = createTempPictureUri()
+                            tempPhotoUri = uri
+                            cameraLauncher.launch(uri)
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                        showImageOptions = false
+                    }) {
+                        Text("Take Photo")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        galleryLauncher.launch("image/*")
+                        showImageOptions = false
+                    }) {
+                        Text("Choose from Gallery")
+                    }
+                }
+            )
         }
 
         // Quick-Access FAB for Accessibility
@@ -382,14 +476,62 @@ fun ChatBubble(msg: ChatMessage) {
             border = if (!isUser) BorderStroke(1.dp, Color(0xFFF1F5F9)) else null,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Text(
-                text = msg.text,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                color = if (isEmergency && !isUser) Color.Red else if (isUser) Color.White else Color(0xFF1E293B),
-                fontSize = 15.sp,
-                fontWeight = if (isEmergency) FontWeight.Bold else FontWeight.Normal,
-                lineHeight = 22.sp
-            )
+            Column {
+                if (msg.imageBitmap != null) {
+                    Image(
+                        bitmap = msg.imageBitmap.asImageBitmap(),
+                        contentDescription = "Prescription Image",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .padding(8.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                Text(
+                    text = msg.text,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    color = if (isEmergency && !isUser) Color.Red else if (isUser) Color.White else Color(0xFF1E293B),
+                    fontSize = 15.sp,
+                    fontWeight = if (isEmergency) FontWeight.Bold else FontWeight.Normal,
+                    lineHeight = 22.sp
+                )
+            }
+        }
+        
+        if (msg.role == "ai" && msg.extractedMedications != null) {
+            val context = LocalContext.current
+            val medViewModel: MedicationViewModel = viewModel()
+            val triageViewModel: TriageViewModel = viewModel()
+            
+            Button(
+                onClick = {
+                    if (!msg.medicationsAdded) {
+                        try {
+                            msg.extractedMedications.forEach { med ->
+                                medViewModel.addMedication(
+                                    name = med.name,
+                                    dosage = med.dose,
+                                    times = med.times,
+                                    days = emptyList()
+                                )
+                            }
+                            triageViewModel.markMedicationsAdded(msg.id)
+                            Toast.makeText(context, "✓ Added ${msg.extractedMedications.size} medications to your schedule", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Couldn't auto-add medications. Please add them manually.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                enabled = !msg.medicationsAdded,
+                modifier = Modifier.padding(top = 8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (msg.medicationsAdded) Color.Gray else Color(0xFF4F46E5)
+                )
+            ) {
+                Text(if (msg.medicationsAdded) "✓ Added to schedule" else "Add these to my medications")
+            }
         }
     }
 }

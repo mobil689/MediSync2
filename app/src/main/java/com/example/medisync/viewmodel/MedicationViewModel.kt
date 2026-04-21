@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 
 data class TodayUiState(
     val medications: List<Medication> = emptyList(),
-    val userName: String = "Alex",
+    val userName: String = "Abhi",
     val selectedIds: Set<String> = emptySet(),
     val isAddDrawerOpen: Boolean = false,
     val isDeleteConfirmOpen: Boolean = false
