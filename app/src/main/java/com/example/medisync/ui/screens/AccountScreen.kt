@@ -86,6 +86,20 @@ fun AccountScreen(onLogout: () -> Unit, viewModel: MedicationViewModel = viewMod
     var showReportsSheet by remember { mutableStateOf(false) }
     var showLanguageSheet by remember { mutableStateOf(false) }
 
+    val isAnyModalOpen = showNameEditDialog || showNotificationsSheet || showReportsSheet || showLanguageSheet
+
+    val blurAnim by animateDpAsState(
+        targetValue = if (isAnyModalOpen) 12.dp else 0.dp,
+        animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
+        label = "blurAnimation"
+    )
+
+    val contentScale by animateFloatAsState(
+        targetValue = if (isAnyModalOpen) 0.94f else 1f,
+        animationSpec = tween(durationMillis = 400, easing = LinearOutSlowInEasing),
+        label = "contentScale"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -98,6 +112,11 @@ fun AccountScreen(onLogout: () -> Unit, viewModel: MedicationViewModel = viewMod
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = contentScale
+                    scaleY = contentScale
+                }
+                .blur(blurAnim)
                 .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp, vertical = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
