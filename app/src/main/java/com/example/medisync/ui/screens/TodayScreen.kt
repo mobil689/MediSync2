@@ -266,9 +266,8 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
         if (showAddDrawer) {
             AddMedicationDrawer(
                 onDismiss = { showAddDrawer = false },
-                onSave = { name, dosage, time ->
-                    // Correcting the ViewModel call to handle a single time string
-                    viewModel.addMedication(name, dosage, listOf(time))
+                onSave = { name, dosage, time, days ->
+                    viewModel.addMedication(name, dosage, listOf(time), days)
                     showAddDrawer = false
                 }
             )
@@ -547,9 +546,13 @@ fun DeleteMedicationDrawer(count: Int, onDismiss: () -> Unit, onConfirm: () -> U
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String, List<String>) -> Unit) {
     var name by remember { mutableStateOf("") }
     var dosage by remember { mutableStateOf("") }
+
+    // Day Selection State
+    val daysOfWeek = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    val selectedDays = remember { mutableStateListOf<String>().apply { addAll(daysOfWeek) } }
 
     // Time State
     var selectedHour by remember { mutableIntStateOf(9) }
@@ -635,6 +638,49 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String) 
                 }
             )
 
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Days", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                daysOfWeek.forEach { day ->
+                    val isSelected = selectedDays.contains(day)
+                    val dayInteractionSource = remember { MutableInteractionSource() }
+                    val dayPressed by dayInteractionSource.collectIsPressedAsState()
+                    val dayScale by animateFloatAsState(
+                        targetValue = if (dayPressed) 0.9f else 1f,
+                        label = "dayScale"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .scale(dayScale)
+                            .clip(CircleShape)
+                            .background(if (isSelected) Color(0xFFE8EAF6) else Color.Transparent)
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) Color(0xFF5C6BC0) else Color(0xFFE2E8F0),
+                                shape = CircleShape
+                            )
+                            .clickable(interactionSource = dayInteractionSource, indication = null) {
+                                if (isSelected) selectedDays.remove(day) else selectedDays.add(day)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = day.take(1),
+                            fontSize = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color(0xFF3F51B5) else Color(0xFF64748B)
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
             
             val interactionSource = remember { MutableInteractionSource() }
@@ -645,11 +691,11 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String) 
                 label = "btnScale"
             )
 
-            val canSubmit = name.isNotBlank() && dosage.isNotBlank()
+            val canSubmit = name.isNotBlank() && dosage.isNotBlank() && selectedDays.isNotEmpty()
             Button(
                 onClick = { 
                     val formattedTime = String.format(Locale.US, "%d:%02d %s", selectedHour, selectedMinute, selectedAmPm)
-                    onSave(name, dosage, formattedTime) 
+                    onSave(name, dosage, formattedTime, selectedDays.toList())
                 },
                 enabled = canSubmit,
                 interactionSource = interactionSource,

@@ -27,12 +27,13 @@ class MedicationViewModel : ViewModel() {
             initialValue = emptyList()
         )
 
-    fun addMedication(name: String, dosage: String, times: List<String>) {
+    fun addMedication(name: String, dosage: String, times: List<String>, days: List<String> = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) {
         times.forEach { timeStr ->
             val medication = Medication(
                 name = name,
                 dosage = dosage,
                 time = timeStr,
+                days = days,
                 timeOfDay = when {
                     timeStr.contains("AM") -> {
                         val h = timeStr.split(":")[0].toInt()
