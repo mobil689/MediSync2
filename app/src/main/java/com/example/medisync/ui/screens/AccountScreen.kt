@@ -74,7 +74,7 @@ fun AccountScreen(onLogout: () -> Unit, viewModel: MedicationViewModel = viewMod
     // State for Profile Name - using ViewModel for sync
     var showNameEditDialog by remember { mutableStateOf(false) }
 
-    // State for Emergency Medical ID
+    // State for Emergency Medical Info
     var isEditingMedicalId by remember { mutableStateOf(false) }
     var bloodType by remember { mutableStateOf("O+") }
     var allergies by remember { mutableStateOf("Penicillin") }
@@ -151,7 +151,7 @@ fun AccountScreen(onLogout: () -> Unit, viewModel: MedicationViewModel = viewMod
 
             Spacer(modifier = Modifier.height(20.dp))
             
-            EmergencyMedicalIDCard(
+            EmergencyMedicalInfoCard(
                 isEditing = isEditingMedicalId,
                 onEditClick = { isEditingMedicalId = !isEditingMedicalId },
                 bloodType = bloodType,
@@ -380,7 +380,7 @@ fun StatsCard(
 }
 
 @Composable
-fun EmergencyMedicalIDCard(
+fun EmergencyMedicalInfoCard(
     isEditing: Boolean,
     onEditClick: () -> Unit,
     bloodType: String,
@@ -407,8 +407,8 @@ fun EmergencyMedicalIDCard(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Emergency Medical ID", fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
-                    Text("Visible on lock screen", fontSize = 12.sp, color = Color(0xFF64748B))
+                    Text("Emergency Medical Info", fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+
                 }
                 if (isEditing) {
                     Button(
