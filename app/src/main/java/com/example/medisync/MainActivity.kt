@@ -134,7 +134,7 @@ fun MainAppContent(onLogout: () -> Unit) {
             composable(Screen.Today.route) { TodayScreen(viewModel = medicationViewModel) }
             composable(Screen.Triage.route) { TriageScreen() }
             composable(Screen.Doctors.route) { DoctorsScreen() }
-            composable(Screen.Account.route) { AccountScreen(onLogout = onLogout, medViewModel = medicationViewModel) }
+            composable(Screen.Account.route) { AccountScreen(onLogout = onLogout, viewModel = medicationViewModel) }
         }
     }
 }

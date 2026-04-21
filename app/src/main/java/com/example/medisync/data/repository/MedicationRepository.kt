@@ -13,7 +13,7 @@ class MedicationRepository {
     private val _medications = MutableStateFlow<List<Medication>>(
         listOf(
             Medication(name = "Lisinopril", dosage = "10 mg", time = "8:00 AM", timeOfDay = "morning", isTaken = false),
-            Medication(name = "Metformin", dosage = "1:00 PM", time = "1:00 PM", timeOfDay = "afternoon", isTaken = true, loggedTime = "1:04 PM"),
+            Medication(name = "Metformin", dosage = "500 mg", time = "1:00 PM", timeOfDay = "afternoon", isTaken = true, loggedTime = "1:04 PM"),
             Medication(name = "Atorvastatin", dosage = "20 mg", time = "7:30 AM", timeOfDay = "morning", isTaken = false)
         )
     )

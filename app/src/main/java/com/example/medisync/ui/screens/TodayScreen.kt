@@ -1,12 +1,8 @@
 package com.example.medisync.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +10,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -24,21 +22,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -47,41 +43,41 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.example.medisync.data.model.Medication
 import com.example.medisync.viewmodel.MedicationViewModel
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
+    val uiState by viewModel.uiState.collectAsState()
     val today = LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
-    var showAddDrawer by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val scrollState = rememberLazyListState()
     
-    val medications by viewModel.medications.collectAsState()
-    val userName by viewModel.userName.collectAsState()
-    val selectedIds = remember { mutableStateListOf<String>() }
-    val isSelectionMode = selectedIds.isNotEmpty()
+    // Performance: derivedStateOf for scroll-dependent values
+    val isScrolled by remember {
+        derivedStateOf { scrollState.firstVisibleItemIndex > 0 || scrollState.firstVisibleItemScrollOffset > 0 }
+    }
 
-    val blurRadius by animateDpAsState(
-        targetValue = if (showAddDrawer || showDeleteConfirm) 10.dp else 0.dp,
+    val takenCount = uiState.medications.count { it.isTaken }
+    val totalCount = uiState.medications.size
+    val isSelectionMode = uiState.selectedIds.isNotEmpty()
+    val isAnyDrawerOpen = uiState.isAddDrawerOpen || uiState.isDeleteConfirmOpen
+
+    val blurAnim by animateDpAsState(
+        targetValue = if (isAnyDrawerOpen) 12.dp else 0.dp,
+        animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
+        label = "blurAnimation"
+    )
+
+    val contentScale by animateFloatAsState(
+        targetValue = if (isAnyDrawerOpen) 0.94f else 1f,
         animationSpec = tween(durationMillis = 400, easing = LinearOutSlowInEasing),
-        label = "blur"
+        label = "contentScale"
     )
-    
-    val bgScale by animateFloatAsState(
-        targetValue = if (showAddDrawer || showDeleteConfirm) 0.95f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "bgScale"
-    )
-
-    val takenCount = medications.count { it.isTaken }
-    val totalCount = medications.size
 
     Box(
         modifier = Modifier
@@ -95,137 +91,165 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
                 )
             )
     ) {
-        Column(
+        // Blurred Background Content
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
-                .scale(bgScale)
-                .blur(blurRadius)
+                .graphicsLayer {
+                    scaleX = contentScale
+                    scaleY = contentScale
+                }
+                .blur(blurAnim)
         ) {
-            Spacer(modifier = Modifier.height(40.dp))
-            
-            // Header Row with Delete Icon if in Selection Mode
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp)
             ) {
-                Column {
-                    Text(
-                        text = today,
-                        color = Color(0xFF64748B),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Good morning, ${userName.split(" ").firstOrNull() ?: "User"}",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                Spacer(modifier = Modifier.height(40.dp))
+                
+                // Header Row with Delete Icon if in Selection Mode
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(
+                        modifier = Modifier.graphicsLayer {
+                            // Stress Test: Dynamic alpha/scale based on scroll
+                            val scrollOffset = scrollState.firstVisibleItemScrollOffset.toFloat()
+                            if (scrollState.firstVisibleItemIndex == 0) {
+                                alpha = (1f - (scrollOffset / 300f)).coerceIn(0f, 1f)
+                                scaleX = (1f - (scrollOffset / 1000f)).coerceIn(0.9f, 1f)
+                                scaleY = (1f - (scrollOffset / 1000f)).coerceIn(0.9f, 1f)
+                            } else {
+                                alpha = 0f
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = today,
+                            color = Color(0xFF64748B),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Good morning, ${uiState.userName}",
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E293B),
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                    
+                    if (isSelectionMode) {
+                        IconButton(
+                            onClick = { viewModel.toggleDeleteConfirm(true) },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF5350))
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete selected",
+                                tint = Color.White
+                            )
+                        }
+                    }
                 }
                 
                 if (isSelectionMode) {
-                    IconButton(
-                        onClick = { showDeleteConfirm = true },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFEF5350))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete selected",
-                            tint = Color.White
+                        Text(
+                            text = "${uiState.selectedIds.size} SELECTED · HOLD TO SELECT MORE",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF64748B)
                         )
+                        TextButton(onClick = { viewModel.clearSelection() }) {
+                            Text("Cancel", color = Color(0xFF5C6BC0), fontWeight = FontWeight.Bold)
+                        }
                     }
-                }
-            }
-            
-            if (isSelectionMode) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                } else {
                     Text(
-                        text = "${selectedIds.size} SELECTED · HOLD TO SELECT MORE",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF64748B)
-                    )
-                    TextButton(onClick = { selectedIds.clear() }) {
-                        Text("Cancel", color = Color(0xFF5C6BC0), fontWeight = FontWeight.Bold)
-                    }
-                }
-            } else {
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))) {
-                            append(takenCount.toString())
-                        }
-                        append(" of ")
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))) {
-                            append(totalCount.toString())
-                        }
-                        append(" doses logged today")
-                    },
-                    color = Color(0xFF64748B),
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            Text(
-                text = "TODAY'S SCHEDULE",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF64748B),
-                letterSpacing = 1.sp
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)
-            ) {
-                items(medications, key = { it.id }) { medication ->
-                    val isSelected = selectedIds.contains(medication.id)
-                    Box(modifier = Modifier.animateItemPlacement()) {
-                        MedicationCard(
-                            medication = medication,
-                            isSelectionMode = isSelectionMode,
-                            isSelected = isSelected,
-                            onToggle = { 
-                                if (isSelectionMode) {
-                                    if (isSelected) selectedIds.remove(medication.id) else selectedIds.add(medication.id)
-                                } else {
-                                    viewModel.toggleMedication(medication.id)
-                                }
-                            },
-                            onLongPress = {
-                                if (!isSelectionMode) {
-                                    selectedIds.add(medication.id)
-                                }
+                        text = buildAnnotatedString {
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))) {
+                                append(takenCount.toString())
                             }
+                            append(" of ")
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))) {
+                                append(totalCount.toString())
+                            }
+                            append(" doses logged today")
+                        },
+                        color = Color(0xFF64748B),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 8.dp).graphicsLayer {
+                            if (scrollState.firstVisibleItemIndex == 0) {
+                                alpha = (1f - (scrollState.firstVisibleItemScrollOffset.toFloat() / 200f)).coerceIn(0f, 1f)
+                            } else {
+                                alpha = 0f
+                            }
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                Text(
+                    text = "TODAY'S SCHEDULE",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF64748B),
+                    letterSpacing = 1.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                LazyColumn(
+                    state = scrollState,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)
+                ) {
+                    items(uiState.medications, key = { it.id }) { medication ->
+                        val isSelected = uiState.selectedIds.contains(medication.id)
+                        Box(modifier = Modifier.animateItemPlacement()) {
+                            MedicationCard(
+                                medication = medication,
+                                isSelectionMode = isSelectionMode,
+                                isSelected = isSelected,
+                                onToggle = { 
+                                    if (isSelectionMode) {
+                                        viewModel.toggleSelection(medication.id)
+                                    } else {
+                                        viewModel.toggleMedication(medication.id)
+                                    }
+                                },
+                                onLongPress = {
+                                    if (!isSelectionMode) {
+                                        viewModel.toggleSelection(medication.id)
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Tip: hold a card for 2 seconds to select & delete.",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = Color(0xFF64748B),
+                            fontSize = 13.sp
                         )
                     }
-                }
-                
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Tip: hold a card for 2 seconds to select & delete.",
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        color = Color(0xFF64748B),
-                        fontSize = 13.sp
-                    )
                 }
             }
         }
@@ -241,7 +265,7 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
             )
 
             FloatingActionButton(
-                onClick = { showAddDrawer = true },
+                onClick = { viewModel.toggleAddDrawer(true) },
                 interactionSource = fabInteractionSource,
                 containerColor = Color.Transparent,
                 contentColor = Color.White,
@@ -253,7 +277,7 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
                     .scale(fabScale)
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Color(0xFF5C6BC0), Color(0xFF7E57C2))
+                            colors = listOf(Color(0xFF6366F1), Color(0xFF8B5CF6))
                         ),
                         shape = CircleShape
                     ),
@@ -263,24 +287,22 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
             }
         }
 
-        if (showAddDrawer) {
+        if (uiState.isAddDrawerOpen) {
             AddMedicationDrawer(
-                onDismiss = { showAddDrawer = false },
+                onDismiss = { viewModel.toggleAddDrawer(false) },
                 onSave = { name, dosage, time, days ->
                     viewModel.addMedication(name, dosage, listOf(time), days)
-                    showAddDrawer = false
+                    viewModel.toggleAddDrawer(false)
                 }
             )
         }
         
-        if (showDeleteConfirm) {
+        if (uiState.isDeleteConfirmOpen) {
             DeleteMedicationDrawer(
-                count = selectedIds.size,
-                onDismiss = { showDeleteConfirm = false },
+                count = uiState.selectedIds.size,
+                onDismiss = { viewModel.toggleDeleteConfirm(false) },
                 onConfirm = {
-                    viewModel.deleteMedications(selectedIds.toSet())
-                    selectedIds.clear()
-                    showDeleteConfirm = false
+                    viewModel.deleteSelected()
                 }
             )
         }
@@ -290,7 +312,7 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MedicationCard(
-    medication: Medication, 
+    medication: Medication,
     isSelectionMode: Boolean,
     isSelected: Boolean,
     onToggle: () -> Unit,
@@ -298,7 +320,7 @@ fun MedicationCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    
+
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.97f else 1f,
         animationSpec = spring(
@@ -399,7 +421,7 @@ fun MedicationCard(
                         fontSize = 14.sp,
                         color = Color(0xFF64748B)
                     )
-                    
+
                     AnimatedVisibility(
                         visible = medication.isTaken,
                         enter = fadeIn() + slideInHorizontally(),
@@ -425,7 +447,7 @@ fun MedicationCard(
                     AnimatedContent(
                         targetState = medication.isTaken,
                         transitionSpec = {
-                            (fadeIn(animationSpec = tween(220, delayMillis = 90)) + 
+                            (fadeIn(animationSpec = tween(220, delayMillis = 90)) +
                              scaleIn(initialScale = 0.92f, animationSpec = tween(220, delayMillis = 90)))
                             .togetherWith(fadeOut(animationSpec = tween(90)))
                         },
@@ -495,18 +517,18 @@ fun DeleteMedicationDrawer(count: Int, onDismiss: () -> Unit, onConfirm: () -> U
                     modifier = Modifier.size(32.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text(
                 text = "Delete selected schedules?",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1E293B)
             )
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             Text(
                 text = "This medication schedule will be permanently removed. You can always add them back later.",
                 fontSize = 14.sp,
@@ -514,9 +536,9 @@ fun DeleteMedicationDrawer(count: Int, onDismiss: () -> Unit, onConfirm: () -> U
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 lineHeight = 20.sp
             )
-            
+
             Spacer(modifier = Modifier.height(32.dp))
-            
+
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = onDismiss,
@@ -528,7 +550,7 @@ fun DeleteMedicationDrawer(count: Int, onDismiss: () -> Unit, onConfirm: () -> U
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel", color = Color(0xFF1E293B), fontWeight = FontWeight.Bold)
                 }
-                
+
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f).height(56.dp),
@@ -550,14 +572,14 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String, 
     var name by remember { mutableStateOf("") }
     var dosage by remember { mutableStateOf("") }
 
-    // Day Selection State
-    val daysOfWeek = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-    val selectedDays = remember { mutableStateListOf<String>().apply { addAll(daysOfWeek) } }
-
     // Time State
     var selectedHour by remember { mutableIntStateOf(9) }
     var selectedMinute by remember { mutableIntStateOf(0) }
     var selectedAmPm by remember { mutableStateOf("AM") }
+
+    // Days State
+    val allDays = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    var selectedDays by remember { mutableStateOf(setOf<String>()) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -571,6 +593,7 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String, 
                 .fillMaxWidth()
                 .padding(24.dp)
                 .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -588,50 +611,40 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String, 
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF64748B), modifier = Modifier.size(18.dp))
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text("NAME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                placeholder = { Text("e.g. Lisinopril", color = Color(0xFF94A3B8)) },
+                placeholder = { Text("e.g. Lisinopril") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedBorderColor = Color(0xFF5C6BC0),
-                    focusedTextColor = Color(0xFF1E293B),
-                    unfocusedTextColor = Color(0xFF1E293B)
-                )
+                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color(0xFFE2E8F0), focusedBorderColor = Color(0xFF5C6BC0))
             )
-            
+
             Spacer(modifier = Modifier.height(20.dp))
-            
+
             Text("DOSE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(6.dp))
             OutlinedTextField(
                 value = dosage,
                 onValueChange = { dosage = it },
-                placeholder = { Text("e.g. 10 mg", color = Color(0xFF94A3B8)) },
+                placeholder = { Text("e.g. 10 mg") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedBorderColor = Color(0xFF5C6BC0),
-                    focusedTextColor = Color(0xFF1E293B),
-                    unfocusedTextColor = Color(0xFF1E293B)
-                )
+                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color(0xFFE2E8F0), focusedBorderColor = Color(0xFF5C6BC0))
             )
-            
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Text("Timing", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             WheelTimePickerView(
-                onTimeChanged = { h, m, ap -> 
+                onTimeChanged = { h, m, ap ->
                     selectedHour = h
                     selectedMinute = m
                     selectedAmPm = ap
@@ -639,50 +652,32 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String, 
             )
 
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Days", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+
+            Text("SCHEDULE ON", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                daysOfWeek.forEach { day ->
+                allDays.forEach { day ->
                     val isSelected = selectedDays.contains(day)
-                    val dayInteractionSource = remember { MutableInteractionSource() }
-                    val dayPressed by dayInteractionSource.collectIsPressedAsState()
-                    val dayScale by animateFloatAsState(
-                        targetValue = if (dayPressed) 0.9f else 1f,
-                        label = "dayScale"
+                    DayChip(
+                        day = day,
+                        isSelected = isSelected,
+                        onToggle = {
+                            selectedDays = if (isSelected) {
+                                selectedDays - day
+                            } else {
+                                selectedDays + day
+                            }
+                        }
                     )
-
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .scale(dayScale)
-                            .clip(CircleShape)
-                            .background(if (isSelected) Color(0xFFE8EAF6) else Color.Transparent)
-                            .border(
-                                width = 1.dp,
-                                color = if (isSelected) Color(0xFF5C6BC0) else Color(0xFFE2E8F0),
-                                shape = CircleShape
-                            )
-                            .clickable(interactionSource = dayInteractionSource, indication = null) {
-                                if (isSelected) selectedDays.remove(day) else selectedDays.add(day)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = day.take(1),
-                            fontSize = 14.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) Color(0xFF3F51B5) else Color(0xFF64748B)
-                        )
-                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
-            
+
             val interactionSource = remember { MutableInteractionSource() }
             val isPressed by interactionSource.collectIsPressedAsState()
             val scale by animateFloatAsState(
@@ -693,7 +688,7 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String, 
 
             val canSubmit = name.isNotBlank() && dosage.isNotBlank() && selectedDays.isNotEmpty()
             Button(
-                onClick = { 
+                onClick = {
                     val formattedTime = String.format(Locale.US, "%d:%02d %s", selectedHour, selectedMinute, selectedAmPm)
                     onSave(name, dosage, formattedTime, selectedDays.toList())
                 },
@@ -715,6 +710,39 @@ fun AddMedicationDrawer(onDismiss: () -> Unit, onSave: (String, String, String, 
                 Text("Save medication", fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
+    }
+}
+
+@Composable
+fun DayChip(day: String, isSelected: Boolean, onToggle: () -> Unit) {
+    val backgroundColor by animateColorAsState(
+        if (isSelected) Color(0xFFE8EAF6) else Color.Transparent,
+        label = "chipBg"
+    )
+    val borderColor by animateColorAsState(
+        if (isSelected) Color(0xFF5C6BC0) else Color(0xFFE2E8F0),
+        label = "chipBorder"
+    )
+    val textColor by animateColorAsState(
+        if (isSelected) Color(0xFF5C6BC0) else Color(0xFF64748B),
+        label = "chipText"
+    )
+
+    Box(
+        modifier = Modifier
+            .size(width = 44.dp, height = 44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(backgroundColor)
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable { onToggle() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = day,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = textColor
+        )
     }
 }
 
@@ -750,19 +778,18 @@ fun WheelTimePickerView(onTimeChanged: (Int, Int, String) -> Unit) {
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             items(presets) { time ->
-                val isSelected = false // Visual only for now
                 Surface(
                     onClick = {
                         val parts = time.split(" ", ":")
                         val h = parts[0].toInt()
                         val m = parts[1].toInt()
                         val ap = parts[2]
-                        
+
                         scope.launch {
                             // Find nearest index to target value
                             val targetHourIdx = hourState.firstVisibleItemIndex + (h - currentHour)
                             val targetMinIdx = minuteState.firstVisibleItemIndex + (m - currentMinute)
-                            
+
                             hourState.animateScrollToItem(targetHourIdx)
                             minuteState.animateScrollToItem(targetMinIdx)
                             amPmState.animateScrollToItem(amPm.indexOf(ap))
@@ -771,7 +798,7 @@ fun WheelTimePickerView(onTimeChanged: (Int, Int, String) -> Unit) {
                     },
                     shape = RoundedCornerShape(20.dp),
                     color = Color(0xFFF1F5F9),
-                    border = borderStroke(1.dp, Color(0xFFE2E8F0))
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
                 ) {
                     Text(
                         text = time,
@@ -828,7 +855,7 @@ fun WheelColumn(
     // Use smaller multipliers to avoid unnecessary item overhead
     val multiplier = if (items.size > 2) 100 else 10
     val totalItems = if (isInfinite) multiplier * items.size else items.size
-    
+
     LaunchedEffect(state.firstVisibleItemIndex) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
@@ -843,7 +870,7 @@ fun WheelColumn(
         items(totalItems) { index ->
             val isSelected by remember { derivedStateOf { index == state.firstVisibleItemIndex } }
             val item = items[index % items.size]
-            
+
             val scale by animateFloatAsState(if (isSelected) 1.2f else 0.8f, label = "wheelScale")
             val alpha by animateFloatAsState(if (isSelected) 1f else 0.3f, label = "wheelAlpha")
 
@@ -866,5 +893,3 @@ fun WheelColumn(
         }
     }
 }
-
-private fun borderStroke(width: androidx.compose.ui.unit.Dp, color: Color) = androidx.compose.foundation.BorderStroke(width, color)

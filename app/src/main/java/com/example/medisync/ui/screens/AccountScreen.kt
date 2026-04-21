@@ -6,9 +6,12 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,11 +32,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -44,20 +51,27 @@ import com.example.medisync.viewmodel.MedicationViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountScreen(onLogout: () -> Unit, medViewModel: MedicationViewModel = viewModel()) {
+fun AccountScreen(onLogout: () -> Unit, viewModel: MedicationViewModel = viewModel()) {
     val scrollState = rememberScrollState()
-    val medications by medViewModel.medications.collectAsState()
-    val userName by medViewModel.userName.collectAsState()
-    
-    // Logic for Stats
-    val takenToday = medications.count { it.isTaken }
-    val totalToday = medications.size
-    val dailyProgress = if (totalToday > 0) takenToday.toFloat() / totalToday else 0f
-    
-    // Mock streak logic: 100% adherence = active streak
-    val streakValue = if (dailyProgress == 1f && totalToday > 0) 5 else 0 
+    val uiState by viewModel.uiState.collectAsState()
 
-    // State for Profile Name
+    // Optimized stats using derivedStateOf
+    val stats by remember {
+        derivedStateOf {
+            val medications = uiState.medications
+            val taken = medications.count { it.isTaken }
+            val total = medications.size
+            val progress = if (total > 0) taken.toFloat() / total else 0f
+            val streak = if (progress == 1f && total > 0) 5 else 0
+            
+            Triple(taken, total, Pair(progress, streak))
+        }
+    }
+
+    val (takenToday, totalToday, progressStreak) = stats
+    val (dailyProgress, streakValue) = progressStreak
+
+    // State for Profile Name - using ViewModel for sync
     var showNameEditDialog by remember { mutableStateOf(false) }
 
     // State for Emergency Medical ID
@@ -89,8 +103,8 @@ fun AccountScreen(onLogout: () -> Unit, medViewModel: MedicationViewModel = view
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             ProfileHeader(
-                name = userName,
-                email = "eleanor.vance@example.com",
+                name = uiState.userName,
+                email = "${uiState.userName.lowercase().replace(" ", ".")}@example.com",
                 onEditName = { showNameEditDialog = true }
             )
             
@@ -146,10 +160,10 @@ fun AccountScreen(onLogout: () -> Unit, medViewModel: MedicationViewModel = view
         // Modals
         if (showNameEditDialog) {
             EditNameDialog(
-                currentName = userName,
+                currentName = uiState.userName,
                 onDismiss = { showNameEditDialog = false },
                 onConfirm = { 
-                    medViewModel.updateUserName(it)
+                    viewModel.updateUserName(it)
                     showNameEditDialog = false
                 }
             )
@@ -420,7 +434,7 @@ fun EmergencyMedicalIDCard(
                         ),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = Color.White, 
+                            unfocusedContainerColor = Color.White,
                             focusedContainerColor = Color.White,
                             unfocusedTextColor = Color(0xFF1E293B),
                             focusedTextColor = Color(0xFF1E293B)
@@ -436,7 +450,7 @@ fun EmergencyMedicalIDCard(
                         ),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = Color.White, 
+                            unfocusedContainerColor = Color.White,
                             focusedContainerColor = Color.White,
                             unfocusedTextColor = Color(0xFF1E293B),
                             focusedTextColor = Color(0xFF1E293B)
@@ -468,14 +482,14 @@ fun MedicalIdEditRow(label: String, value: String, onValueChange: (String) -> Un
             onValueChange = onValueChange,
             modifier = Modifier.width(120.dp),
             textStyle = androidx.compose.ui.text.TextStyle(
-                fontSize = 14.sp, 
-                textAlign = TextAlign.End, 
+                fontSize = 14.sp,
+                textAlign = TextAlign.End,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1E293B)
             ),
             shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedContainerColor = Color.White, 
+                unfocusedContainerColor = Color.White,
                 focusedContainerColor = Color.White,
                 unfocusedTextColor = Color(0xFF1E293B),
                 focusedTextColor = Color(0xFF1E293B)
@@ -514,9 +528,9 @@ fun SettingsCard(
             SettingsRow(Icons.Default.Language, "Language & Region", "English", Color(0xFFFFF3E0), Color(0xFFFFA726), onLanguageClick)
         }
     }
-    
+
     Spacer(modifier = Modifier.height(20.dp))
-    
+
     OutlinedButton(
         onClick = onLogout,
         modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -570,7 +584,7 @@ fun NotificationPreferencesSheet(onDismiss: () -> Unit) {
             NotificationToggle("Email Updates", "Weekly summary and important changes", false)
             NotificationToggle("Refill Reminders", "Get notified when supply is low", true)
             NotificationToggle("Missed Dose Alerts", "Nudge if you forget a scheduled dose", true)
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             Button(
                 onClick = onDismiss,
@@ -594,7 +608,7 @@ fun NotificationToggle(title: String, subtitle: String, initialValue: Boolean) {
             Text(if (checked) "ON" else "OFF", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (checked) Color(0xFF2E7D32) else Color(0xFF64748B))
         }
         Switch(
-            checked = checked, 
+            checked = checked,
             onCheckedChange = { checked = it },
             colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF2E7D32))
         )
@@ -623,7 +637,7 @@ fun MedicalReportsSheet(onDismiss: () -> Unit) {
                         val name = c.getString(nameIndex)
                         val size = c.getLong(sizeIndex)
                         val sizeInMb = size / (1024f * 1024f)
-                        
+
                         if (sizeInMb > 5f) {
                             Toast.makeText(context, "File too large! Max 5MB allowed.", Toast.LENGTH_LONG).show()
                         } else {
@@ -649,7 +663,7 @@ fun MedicalReportsSheet(onDismiss: () -> Unit) {
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             // Upload area
             Box(
                 modifier = Modifier
@@ -674,11 +688,11 @@ fun MedicalReportsSheet(onDismiss: () -> Unit) {
                     Text("PDF, JPG, PNG · up to 5 MB", fontSize = 12.sp, color = Color(0xFF64748B))
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             Text("RECENT UPLOADS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             uploadedFiles.forEach { (name, size) ->
                 ReportItem(name, size)
             }
@@ -712,13 +726,13 @@ fun LanguageRegionSheet(onDismiss: () -> Unit) {
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text("LANGUAGE", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             val languages = listOf("English", "Hindi", "Bengali", "Telugu", "Marathi", "Tamil", "Urdu", "Gujarati", "Kannada", "Odia", "Malayalam", "Punjabi")
             var selectedLanguage by remember { mutableStateOf("English") }
-            
+
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -729,11 +743,11 @@ fun LanguageRegionSheet(onDismiss: () -> Unit) {
                     LanguageChip(lang, lang == selectedLanguage) { selectedLanguage = lang }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
             Text("REGION", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             var region by remember { mutableStateOf("India") }
             OutlinedCard(
                 onClick = { },

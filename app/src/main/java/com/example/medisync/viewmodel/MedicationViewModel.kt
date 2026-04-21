@@ -4,62 +4,96 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.medisync.data.model.Medication
 import com.example.medisync.data.repository.MedicationRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+
+data class TodayUiState(
+    val medications: List<Medication> = emptyList(),
+    val userName: String = "Alex",
+    val selectedIds: Set<String> = emptySet(),
+    val isAddDrawerOpen: Boolean = false,
+    val isDeleteConfirmOpen: Boolean = false
+)
 
 class MedicationViewModel : ViewModel() {
-    private val repository = MedicationRepository() // Normally injected via Hilt
+    private val repository = MedicationRepository()
 
-    private val _userName = MutableStateFlow("Eleanor Vance")
-    val userName: StateFlow<String> = _userName.asStateFlow()
+    private val _uiState = MutableStateFlow(TodayUiState())
+    val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
-    fun updateUserName(newName: String) {
-        _userName.value = newName
+    init {
+        observeMedications()
     }
 
-    val medications: StateFlow<List<Medication>> = repository.medications
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    private fun observeMedications() {
+        repository.medications.onEach { list ->
+            _uiState.update { it.copy(medications = list) }
+        }.launchIn(viewModelScope)
+    }
 
-    fun addMedication(name: String, dosage: String, times: List<String>, days: List<String> = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) {
+    fun updateUserName(newName: String) {
+        _uiState.update { it.copy(userName = newName) }
+    }
+
+    fun toggleAddDrawer(open: Boolean) {
+        _uiState.update { it.copy(isAddDrawerOpen = open) }
+    }
+
+    fun toggleDeleteConfirm(open: Boolean) {
+        _uiState.update { it.copy(isDeleteConfirmOpen = open) }
+    }
+
+    fun toggleSelection(id: String) {
+        _uiState.update { state ->
+            val newSelection = state.selectedIds.toMutableSet()
+            if (newSelection.contains(id)) newSelection.remove(id) else newSelection.add(id)
+            state.copy(selectedIds = newSelection)
+        }
+    }
+
+    fun clearSelection() {
+        _uiState.update { it.copy(selectedIds = emptySet()) }
+    }
+
+    fun addMedication(name: String, dosage: String, times: List<String>, days: List<String> = emptyList()) {
         times.forEach { timeStr ->
             val medication = Medication(
                 name = name,
                 dosage = dosage,
                 time = timeStr,
                 days = days,
-                timeOfDay = when {
-                    timeStr.contains("AM") -> {
-                        val h = timeStr.split(":")[0].toInt()
-                        if (h in 5..11) "morning" else "night"
-                    }
-                    timeStr.contains("PM") -> {
-                        val h = timeStr.split(":")[0].toInt()
-                        when (h) {
-                            12 -> "afternoon"
-                            in 1..4 -> "afternoon"
-                            in 5..8 -> "evening"
-                            else -> "night"
-                        }
-                    }
-                    else -> "morning"
-                }
+                timeOfDay = calculateTimeOfDay(timeStr)
             )
             repository.addMedication(medication)
         }
     }
 
-    fun deleteMedications(ids: Set<String>) {
-        repository.deleteMedications(ids)
+    fun deleteSelected() {
+        repository.deleteMedications(_uiState.value.selectedIds)
+        clearSelection()
+        toggleDeleteConfirm(false)
     }
 
     fun toggleMedication(id: String) {
         repository.toggleMedication(id)
+    }
+
+    private fun calculateTimeOfDay(timeStr: String): String {
+        return when {
+            timeStr.contains("AM") -> {
+                val h = timeStr.split(":")[0].toInt()
+                if (h in 5..11) "morning" else "night"
+            }
+            timeStr.contains("PM") -> {
+                val h = timeStr.split(":")[0].toInt()
+                when (h) {
+                    12 -> "afternoon"
+                    in 1..4 -> "afternoon"
+                    in 5..8 -> "evening"
+                    else -> "night"
+                }
+            }
+            else -> "morning"
+        }
     }
 }
