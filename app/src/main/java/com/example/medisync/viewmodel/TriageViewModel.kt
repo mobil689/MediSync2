@@ -17,7 +17,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 class TriageViewModel(
-    private val repository: MedicationRepository = MedicationRepository() // In a real app, use Hilt/Koin
+    private val repository: MedicationRepository = MedicationRepository
 ) : ViewModel() {
     private val apiKey = "Bearer ${BuildConfig.GROQ_API_KEY}"
     

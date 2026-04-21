@@ -14,7 +14,7 @@ if (localPropertiesFile.exists()) {
 
 android {
     namespace = "com.example.medisync"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.medisync"

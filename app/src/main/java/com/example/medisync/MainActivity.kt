@@ -56,7 +56,10 @@ class MainActivity : ComponentActivity() {
                 var isLoggedIn by remember { mutableStateOf(false) }
 
                 if (!isLoggedIn) {
-                    LoginScreen(onLoginSuccess = { isLoggedIn = true })
+                    LoginScreen(onLoginSuccess = { 
+                        android.util.Log.d("MediSync", "Login successful, transitioning to MainAppContent")
+                        isLoggedIn = true 
+                    })
                 } else {
                     PermissionWrapper {
                         MainAppContent(onLogout = { isLoggedIn = false })

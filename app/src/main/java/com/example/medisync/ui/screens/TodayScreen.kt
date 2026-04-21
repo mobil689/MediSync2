@@ -219,7 +219,7 @@ fun TodayScreen(viewModel: MedicationViewModel = viewModel()) {
                 ) {
                     items(uiState.medications, key = { it.id }) { medication ->
                         val isSelected = uiState.selectedIds.contains(medication.id)
-                        Box(modifier = Modifier.animateItemPlacement()) {
+                        Box(modifier = Modifier.animateItem()) {
                             MedicationCard(
                                 medication = medication,
                                 isSelectionMode = isSelectionMode,
