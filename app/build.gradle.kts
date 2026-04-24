@@ -91,6 +91,9 @@ dependencies {
     // Required for Clerk logic and Compose
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
 
+    // QR Code Generation
+    implementation("com.google.zxing:core:3.5.3")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

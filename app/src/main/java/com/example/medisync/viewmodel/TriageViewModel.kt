@@ -14,6 +14,9 @@ import com.example.medisync.data.network.GroqRequest
 import com.example.medisync.data.network.GroqService
 import com.example.medisync.data.network.ImageUrl
 import com.example.medisync.data.network.Message
+import com.example.medisync.data.local.PrescriptionHistoryManager
+import com.example.medisync.data.model.PrescriptionScan
+import com.example.medisync.data.model.ScannedMedication
 import com.example.medisync.data.repository.MedicationRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +30,8 @@ data class ExtractedMedication(
     val name: String,
     val dose: String,
     val frequency: Int,
-    val times: List<String> // "09:00", "21:00" etc.
+    val times: List<String>, // "09:00", "21:00" etc.
+    val duration: String = "7 Days" // Added duration with default
 )
 
 data class ChatMessage(
@@ -40,9 +44,37 @@ data class ChatMessage(
 )
 
 class TriageViewModel(
+    private val context: Context,
     private val repository: MedicationRepository = MedicationRepository
 ) : ViewModel() {
+    class Factory(private val context: Context) : androidx.lifecycle.ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+            return TriageViewModel(context) as T
+        }
+    }
     private val apiKey = "Bearer ${BuildConfig.GROQ_API_KEY}"
+    private val historyManager = PrescriptionHistoryManager(context)
+
+    private val _pastScans = MutableStateFlow<List<PrescriptionScan>>(emptyList())
+    val pastScans = _pastScans.asStateFlow()
+
+    init {
+        loadPastScans()
+    }
+
+    fun loadPastScans() {
+        viewModelScope.launch {
+            _pastScans.value = historyManager.getAllScans()
+        }
+    }
+
+    fun deleteScan(id: String) {
+        viewModelScope.launch {
+            historyManager.deleteScan(id)
+            loadPastScans()
+        }
+    }
     
     private val retrofit = Retrofit.Builder()
         .baseUrl("https://api.groq.com/openai/")
@@ -199,6 +231,8 @@ class TriageViewModel(
                 if (jsonMatch != null) {
                     val jsonArray = org.json.JSONArray(jsonMatch)
                     val extractedList = mutableListOf<ExtractedMedication>()
+                    val historyMedications = mutableListOf<ScannedMedication>()
+                    
                     for (i in 0 until jsonArray.length()) {
                         val obj = jsonArray.getJSONObject(i)
                         val times = mutableListOf<String>()
@@ -206,15 +240,37 @@ class TriageViewModel(
                         for (j in 0 until timesArray.length()) {
                             times.add(timesArray.getString(j))
                         }
+                        
+                        val name = obj.getString("name")
+                        val dose = obj.getString("dose")
+                        val frequencyInt = obj.getInt("frequency")
+                        
                         extractedList.add(ExtractedMedication(
-                            name = obj.getString("name"),
-                            dose = obj.getString("dose"),
-                            frequency = obj.getInt("frequency"),
+                            name = name,
+                            dose = dose,
+                            frequency = frequencyInt,
                             times = times
+                        ))
+                        
+                        historyMedications.add(ScannedMedication(
+                            name = name,
+                            dose = dose,
+                            frequency = "$frequencyInt times daily",
+                            duration = "7 Days"
                         ))
                     }
 
                     if (extractedList.isNotEmpty()) {
+                        // Auto-save to history
+                        val scan = PrescriptionScan(
+                            patientName = "Unknown", // Can be enhanced later
+                            diagnosis = "General",    // Can be enhanced later
+                            medications = historyMedications,
+                            rawAiResponse = analysisText
+                        )
+                        historyManager.saveScan(scan)
+                        loadPastScans()
+
                         launch(Dispatchers.Main) {
                             // Find the last AI message and attach extracted medications
                             val lastIndex = _messages.indexOfLast { it.role == "ai" }

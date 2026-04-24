@@ -23,6 +23,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.DocumentScanner
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Receipt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -48,11 +53,19 @@ import com.example.medisync.ui.components.BodyZone
 import com.example.medisync.viewmodel.TriageViewModel
 import com.example.medisync.viewmodel.ChatMessage
 import com.example.medisync.viewmodel.MedicationViewModel
+import com.example.medisync.data.model.PrescriptionScan
+import com.example.medisync.data.model.ScannedMedication
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TriageScreen(
-    viewModel: TriageViewModel = viewModel(),
+    viewModel: TriageViewModel = viewModel(
+        factory = TriageViewModel.Factory(LocalContext.current.applicationContext as android.app.Application)
+    ),
     medicationViewModel: MedicationViewModel = viewModel()
 ) {
     var isChatOpen by remember { mutableStateOf(false) }
@@ -62,8 +75,12 @@ fun TriageScreen(
     val messages = viewModel.messages
     val isTyping by viewModel.isTyping.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val pastScans by viewModel.pastScans.collectAsState()
     val listState = rememberLazyListState()
     val context = LocalContext.current
+    
+    var showHistorySheet by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState()
 
     fun createTempPictureUri(): Uri {
         val tempFile = File.createTempFile("temp_image", ".jpg", context.cacheDir).apply {
@@ -173,6 +190,26 @@ fun TriageScreen(
 
                 if (isChatOpen) {
                     Spacer(modifier = Modifier.weight(1f))
+                    
+                    IconButton(
+                        onClick = { 
+                            viewModel.loadPastScans()
+                            showHistorySheet = true 
+                        },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            Icons.Outlined.History, 
+                            contentDescription = "Past Scans", 
+                            tint = Color(0xFF4A6CF7)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     IconButton(
                         onClick = { isChatOpen = false },
                         modifier = Modifier
@@ -272,7 +309,7 @@ fun TriageScreen(
                                         color = Color(0xFF64748B),
                                         modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
                                     )
-                                    ChatBubble(messages.last())
+                                    ChatBubble(messages.last(), viewModel, medicationViewModel)
                                 }
                             }
                         } else {
@@ -292,7 +329,7 @@ fun TriageScreen(
                                 contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
                             ) {
                                 items(messages) { msg ->
-                                    ChatBubble(msg)
+                                    ChatBubble(msg, viewModel, medicationViewModel)
                                 }
                                 if (isTyping || isLoading) {
                                     item {
@@ -445,11 +482,227 @@ fun TriageScreen(
                 }
             }
         }
+
+        if (showHistorySheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showHistorySheet = false },
+                sheetState = sheetState,
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                containerColor = Color.White
+            ) {
+                PrescriptionHistorySheet(
+                    scans = pastScans,
+                    onDelete = { viewModel.deleteScan(it) },
+                    onAddToSchedule = { medications ->
+                        medications.forEach { med ->
+                            medicationViewModel.addMedication(
+                                name = med.name,
+                                dosage = med.dose,
+                                times = listOf("09:00", "21:00"), // Default times
+                                days = emptyList()
+                            )
+                        }
+                        Toast.makeText(context, "✓ Medications added to schedule", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            }
+        }
     }
 }
 
 @Composable
-fun ChatBubble(msg: ChatMessage) {
+fun PrescriptionHistorySheet(
+    scans: List<PrescriptionScan>,
+    onDelete: (String) -> Unit,
+    onAddToSchedule: (List<ScannedMedication>) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .padding(bottom = 32.dp) // Extra padding at bottom for navigation bar
+    ) {
+        Text(
+            "Prescription History",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF1E293B)
+        )
+        Text(
+            "Your scanned prescriptions",
+            fontSize = 14.sp,
+            color = Color.Gray
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        if (scans.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 64.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Outlined.DocumentScanner,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "No prescriptions scanned yet",
+                    fontWeight = FontWeight.Medium,
+                    color = Color.DarkGray
+                )
+                Text(
+                    "Scan a prescription in the chat to see it here",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                items(scans, key = { it.id }) { scan ->
+                    HistoryCard(
+                        scan = scan,
+                        onDelete = { onDelete(scan.id) },
+                        onAddToSchedule = { onAddToSchedule(scan.medications) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HistoryCard(
+    scan: PrescriptionScan,
+    onDelete: () -> Unit,
+    onAddToSchedule: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete this scan?") },
+            text = { Text("This will permanently remove this prescription from your history.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete()
+                    showDeleteConfirm = false
+                }) {
+                    Text("Delete", color = Color.Red)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(2.dp, RoundedCornerShape(16.dp))
+            .clickable { expanded = !expanded },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(0xFF4A6CF7).copy(alpha = 0.1f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.Receipt,
+                        contentDescription = null,
+                        tint = Color(0xFF4A6CF7),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            scan.diagnosis,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color(0xFF1E293B)
+                        )
+                        Text(
+                            dateFormat.format(Date(scan.scanDate)),
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                    }
+                    Text(
+                        "${scan.medications.size} medications",
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.padding(top = 16.dp)) {
+                    Divider(color = Color(0xFFF1F5F9))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    scan.medications.forEach { med ->
+                        Text(
+                            "• ${med.name} — ${med.dose}, ${med.frequency}, ${med.duration}",
+                            fontSize = 13.sp,
+                            color = Color.DarkGray,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Button(
+                        onClick = onAddToSchedule,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A6CF7)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Add to schedule", fontSize = 14.sp)
+                    }
+                    
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) {
+                        Text("Delete Record", color = Color.Red.copy(alpha = 0.7f), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubble(
+    msg: ChatMessage,
+    triageViewModel: TriageViewModel,
+    medViewModel: MedicationViewModel
+) {
     val isUser = msg.role == "user"
     val isEmergency = msg.text.contains("EMERGENCY", ignoreCase = true) || 
                       msg.text.contains("URGENT", ignoreCase = true)
@@ -502,8 +755,6 @@ fun ChatBubble(msg: ChatMessage) {
         
         if (msg.role == "ai" && msg.extractedMedications != null) {
             val context = LocalContext.current
-            val medViewModel: MedicationViewModel = viewModel()
-            val triageViewModel: TriageViewModel = viewModel()
             
             Button(
                 onClick = {
